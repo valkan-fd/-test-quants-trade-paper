@@ -1,0 +1,9 @@
+# 寄り引け戦略 分析ノートブックを動かすための依存パッケージ
+# インストール:  pip install -r notebooks/requirements.txt
+pandas>=2.0
+numpy>=1.24
+matplotlib>=3.6
+pyarrow>=12.0          # parquet 読み込み
+yfinance>=0.2          # S&P500 (^GSPC) 取得（要ネットワーク）
+japanize-matplotlib    # グラフの日本語表示（無くてもフォント自動探索でフォールバック）
+jupyterlab             # ノートブック実行環境（jupyter notebook でも可）

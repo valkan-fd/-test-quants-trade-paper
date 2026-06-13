@@ -6,8 +6,13 @@
   - 端株(1株)＋現物ロング   : 多銘柄に分散できるが【空売り不可】かつ約定タイミング制約あり。
 
 ⚠️ 手数料は「既定の仮定値」。各社の最新料金で必ず上書きすること（FEES 参照）。
-⚠️ 端株(単元未満株)は一般に【信用取引不可＝空売り不可】、約定タイミングも寄り等に限定され、
-   「寄りで買い・引けで売る」寄り引けを正確には再現できない点に注意（long_only + 近似）。
+【web調査(2026-06)で判明した端株の実態】
+  - 共通: 単元未満株は信用取引不可＝【空売り不可】→ 戦略は long-only に変質（下落翌日の稼ぎ頭を失う）。
+  - SBI S株 : 約定9:00/12:30/15:00。売買0円。→ 寄り(9:00)買い・引け(15:00)売りで寄り引けロングを再現可。
+  - moomoo ひと株: 約定は「後場引値」と「翌前場始値」の2回・売買0円。
+                   →（夜に発注で翌前場始値=寄り買い）＋（当日13時までに発注で後場引値=引け売り）で再現可。
+  - 楽天 かぶミニ: 寄付取引は無料だが寄付のみ＝引け売り不可。リアルタイムは片道0.22%スプレッドで手数料倒れ。
+  - マネックス ワン株: 売却0.55%(最低52円)で手数料倒れ。
 """
 from __future__ import annotations
 
@@ -41,18 +46,18 @@ class FeeModel:
         return commission + spread
 
 
-# 既定の手数料プリセット（★要確認：各社の最新料金で上書き）
+# 手数料プリセット（2026-06 web調査ベース。各社改定がありうるので要再確認）
 FEES = {
     "ideal":        FeeModel("ideal"),
-    # 一日信用（大手は売買手数料0円が多い）。スリッページを片道3bps と仮置き。
+    # 一日信用（大手は売買手数料0円）。コストは主にスリッページ→片道3bps と仮置き。要実測。
     "ichinichi_margin": FeeModel("一日信用(単元)", spread_bps=3.0),
-    # 単元・現物（通常手数料の例: 約定代金×0.05%、最低なし相当）+ スリッページ3bps
+    # 単元・現物（通常手数料の一例: 約定代金×0.05%）+ スリッページ3bps
     "tan_genbutsu": FeeModel("単元現物", buy_rate=0.0005, sell_rate=0.0005, spread_bps=3.0),
-    # 端株プリセット（現物ロングのみ） ----------------------------------------
-    "sbi_skabu":    FeeModel("SBI S株", spread_bps=0.0),                 # 売買無料・基準値約定
-    "monex_wankabu": FeeModel("マネックス ワン株", sell_rate=0.0055),    # 買無料/売0.55%
-    "rakuten_kabumini": FeeModel("楽天 かぶミニ", spread_bps=22.0),       # リアルタイム片道0.22%
-    "moomoo_hakabu": FeeModel("moomoo 端株(要確認)", spread_bps=0.0),    # ★実料金を要確認
+    # 端株プリセット（いずれも現物=空売り不可） ------------------------------
+    "sbi_skabu":    FeeModel("SBI S株", spread_bps=0.0),                  # 売買0円・約定9:00/12:30/15:00
+    "moomoo_hakabu": FeeModel("moomoo ひと株", spread_bps=0.0),           # 売買0円・約定 後場引値/翌前場始値
+    "monex_wankabu": FeeModel("マネックス ワン株", sell_rate=0.0055, min_fee=52.0),  # 買0/売0.55%(最低52円)
+    "rakuten_kabumini": FeeModel("楽天 かぶミニ(リアルタイム)", spread_bps=22.0),     # スプレッド片道0.22%
 }
 
 
@@ -77,10 +82,10 @@ def default_scenarios(capital: float = C.CAPITAL) -> list[Scenario]:
         Scenario("理想(等加重・コスト無)", capital, lot=1, allow_short=True, fee_key="ideal", alloc="equal"),
         Scenario("単元+一日信用(両建)", capital, lot=100, allow_short=True, fee_key="ichinichi_margin"),
         Scenario("単元+現物(ロングのみ)", capital, lot=100, allow_short=False, fee_key="tan_genbutsu"),
-        Scenario("端株SBI(ロングのみ)", capital, lot=1, allow_short=False, fee_key="sbi_skabu"),
+        Scenario("端株SBI S株(ロングのみ)", capital, lot=1, allow_short=False, fee_key="sbi_skabu"),
+        Scenario("端株moomoo(ロングのみ)", capital, lot=1, allow_short=False, fee_key="moomoo_hakabu"),
         Scenario("端株マネックス(ロングのみ)", capital, lot=1, allow_short=False, fee_key="monex_wankabu"),
-        Scenario("端株楽天かぶミニ(ロングのみ)", capital, lot=1, allow_short=False, fee_key="rakuten_kabumini"),
-        Scenario("端株moomoo(ロングのみ・要確認)", capital, lot=1, allow_short=False, fee_key="moomoo_hakabu"),
+        Scenario("端株楽天かぶミニRT(ロングのみ)", capital, lot=1, allow_short=False, fee_key="rakuten_kabumini"),
     ]
 
 

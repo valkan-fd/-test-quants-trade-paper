@@ -5,7 +5,7 @@
 import numpy as np
 import pandas as pd
 
-from oc_strategy import core, forward, config as C
+from oc_strategy import core, forward, sizing, config as C
 
 
 def _mini_inputs(n_codes=25, n_days=80, seed=0):
@@ -61,6 +61,40 @@ def test_short_restriction_flattens_short():
     pos = core.compute_positions(df, "ret5", direction=1)
     assert pos.iloc[0] == 0.0    # 規制ありショート → フラット
     assert pos.iloc[1] == -1.0   # 規制なしショート → そのまま
+
+
+def test_ideal_sizing_matches_equal_weight():
+    """理想シナリオ(端株・コスト無・均等予算)の日次純リターンは等加重 mean(pos*Target) に一致。"""
+    price, sl, al, sp = _mini_inputs()
+    panel = core.build_panel(price, sl, al, sp)
+    sc = sizing.Scenario("ideal", capital=1e12, lot=1, allow_short=True, fee_key="ideal", alloc="equal")
+    sim = sizing.simulate(panel, sc, feature="ret5")
+    ref = core.daily_returns_for_feature(panel[panel["InUniverse"]], "ret5")
+    common = sim.index.intersection(ref.index)
+    assert len(common) > 0
+    assert np.allclose(sim.loc[common, "net_ret"], ref.loc[common], atol=1e-6)
+
+
+def test_unit_lot_drops_unaffordable():
+    """単元・少額資金では値がさ株を持てない（買える銘柄数が減る）。"""
+    price, sl, al, sp = _mini_inputs()
+    panel = core.build_panel(price, sl, al, sp)
+    big = sizing.Scenario("big", capital=1e9, lot=100, allow_short=True, fee_key="ideal", alloc="equal")
+    small = sizing.Scenario("small", capital=300_000, lot=100, allow_short=True, fee_key="ideal", alloc="equal")
+    n_big = sizing.simulate(panel, big, feature="ret5")["n_held"].mean()
+    n_small = sizing.simulate(panel, small, feature="ret5")["n_held"].mean()
+    assert n_small < n_big
+
+
+def test_percent_fee_creates_drag():
+    """%課金は純リターンを必ず押し下げる（fee_drag > 0）。"""
+    price, sl, al, sp = _mini_inputs()
+    panel = core.build_panel(price, sl, al, sp)
+    sc = sizing.Scenario("monex", capital=2_000_000, lot=1, allow_short=False,
+                         fee_key="monex_wankabu", alloc="fill")
+    sim = sizing.simulate(panel, sc, feature="ret5")
+    assert (sim["fee_ret"] >= 0).all()
+    assert sim["fee_ret"].sum() > 0
 
 
 def test_forward_idempotent_and_no_double_count():

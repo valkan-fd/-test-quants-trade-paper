@@ -16,6 +16,24 @@ import pandas as pd
 from . import config as C
 
 
+# ----------------------------------------------------------------- plotting
+def setup_japanese_font():
+    """matplotlib の日本語フォントを設定（japanize 優先、無ければ既存CJKフォント探索）。"""
+    import matplotlib.pyplot as plt
+    try:
+        import japanize_matplotlib  # noqa: F401
+        return
+    except Exception:
+        pass
+    from matplotlib import font_manager
+    for name in ["IPAexGothic", "IPAPGothic", "Noto Sans CJK JP", "Noto Sans CJK JP Regular",
+                 "Hiragino Sans", "Yu Gothic", "Meiryo", "TakaoPGothic", "MS Gothic"]:
+        if any(name in f.name for f in font_manager.fontManager.ttflist):
+            plt.rcParams["font.family"] = name
+            break
+    plt.rcParams["axes.unicode_minus"] = False
+
+
 # --------------------------------------------------------------------------- IO
 def normalize_date(df: pd.DataFrame, col: str = C.DATE_COL) -> pd.DataFrame:
     """Date 列を tz なし datetime64[ns] に正規化する。"""

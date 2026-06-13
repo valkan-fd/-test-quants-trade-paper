@@ -86,10 +86,7 @@ def _plot_feature_grid(sub: pd.DataFrame, path: str, direction: int = C.DIRECTIO
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    try:
-        import japanize_matplotlib  # noqa: F401
-    except Exception:
-        pass
+    core.setup_japanese_font()
 
     titles = {"OC": "OPEN-CLOSE騰落率 (C/O-1)", "ret1": "前日比 (AdjC pct_change 1)",
               "ret5": "直近5日騰落率 (pct_change 5)", "ret21": "直近21日騰落率 (pct_change 21)"}

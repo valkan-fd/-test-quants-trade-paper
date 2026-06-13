@@ -142,10 +142,7 @@ def _plot_equity(hist: pd.DataFrame, path: str = C.FORWARD_EQUITY_PNG):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    try:
-        import japanize_matplotlib  # noqa: F401
-    except Exception:
-        pass
+    core.setup_japanese_font()
     d = hist.copy()
     d["decision_date"] = pd.to_datetime(d["decision_date"])
     fig, ax = plt.subplots(figsize=(12, 5))

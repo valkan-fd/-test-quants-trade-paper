@@ -9,3 +9,6 @@ venv/
 # ログ・エクスポート生成物
 exports/
 logs/
+
+# 環境変数(GDRIVE_REMOTE / GIT_HASH などローカル設定)。.env.example をテンプレートとして使う
+.env

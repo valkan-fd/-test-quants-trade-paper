@@ -2,16 +2,20 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# システムパッケージ: rclone, curl 他
+ARG GIT_HASH=unknown
+ENV GIT_HASH=${GIT_HASH}
+
+# システムパッケージ: rclone(GDrive同期用), curl 他
+# rclone は Debian 公式 apt パッケージから導入(外部スクリプト実行を避ける)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
-    && curl https://rclone.org/install.sh | bash \
+    rclone \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # 依存導入
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt apscheduler
+RUN pip install --no-cache-dir -r requirements.txt
 
 # ソースコード
 COPY . .

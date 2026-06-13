@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -41,8 +42,8 @@ def git_hash() -> str:
         return subprocess.check_output(
             ["git", "rev-parse", "--short", "HEAD"],
             cwd=Path(__file__).resolve().parents[1], text=True).strip()
-    except Exception:
-        return "unknown"
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return os.environ.get("GIT_HASH", "unknown")
 
 
 def main() -> None:

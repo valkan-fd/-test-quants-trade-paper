@@ -1,8 +1,9 @@
-version: '3.8'
-
 services:
   forward_service:
-    build: .
+    build:
+      context: .
+      args:
+        GIT_HASH: ${GIT_HASH:-unknown}
     container_name: um790_forward_paper_test
     restart: unless-stopped
     environment:
@@ -18,7 +19,9 @@ services:
       - ./results:/app/results
       - ./exports:/app/exports
       # rclone 設定ディレクトリ（GDrive認証情報）
-      - ~/.config/rclone:/root/.config/rclone:ro
+      # 読み書き可能でマウント: OAuth アクセストークンの自動リフレッシュを保存するため
+      # （:ro だとトークン期限切れ後に同期が失敗する）
+      - ~/.config/rclone:/root/.config/rclone
     logging:
       driver: "json-file"
       options:

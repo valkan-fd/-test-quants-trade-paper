@@ -118,6 +118,55 @@ tail -f logs/daily_forward.log   # 実行ログ
 
 ---
 
+## 4.5 ログをGoogle Driveに蓄積（戦略の検証・再構築用）
+
+ペーパー運用のログを `GDrive/Claude/UKI論文改良bot/` に貯め、後から戦略を検証・
+再構築できるようにする。`forward_cron.sh` は毎回:
+
+1. `export_logs.py` で **検証・再構築に十分な束** を `exports/` に生成
+   - `forward_log_master.csv` … 全期間の日次ログ（累積・日付で重複排除）
+   - `weights/weights_<date>.csv` … 当日の全銘柄ウェイト（再構築用）
+   - `snapshots/state_<date>.json` … 状態スナップショット
+   - `run_metadata.json` … λ/factors/window・ユニバース・**gitハッシュ**（完全再現用）
+2. `GDRIVE_REMOTE` が設定されていれば **rclone** で GDrive へ同期
+
+> 再構築に必要十分な理由: 予測の入力(米/日リターン)は日付から yfinance で再取得できる。
+> よって「日付 + パラメータ + ユニバース + コード版(gitハッシュ) + 予測ウェイト + 実現値」
+> を残せば戦略を完全に再現・検証できる。
+
+### rclone 一回だけの設定（UM790・ヘッドレスでも可）
+
+```bash
+sudo apt install rclone        # or: curl https://rclone.org/install.sh | sudo bash
+rclone config                  # n)ew → 名前 gdrive → Google Drive → 認証
+                               # ヘッドレス時は別PCのブラウザで認証コードを取得
+# フォルダ階層 Claude/UKI論文改良bot は rclone が自動作成する
+```
+
+### cron に GDrive 同期先を渡す
+
+`crontab -e` の cron 行の前に環境変数を足すだけ:
+```
+CRON_TZ=Asia/Tokyo
+GDRIVE_REMOTE=gdrive:Claude/UKI論文改良bot
+0 8 * * 1-5 /絶対パス/-test-quants-trade-paper/scripts/forward_cron.sh
+```
+これで毎営業日、`exports/` 一式が `GDrive/Claude/UKI論文改良bot/exports/` に蓄積される。
+
+### 手動で同期を試す
+
+```bash
+source venv/bin/activate
+python scripts/export_logs.py                       # exports/ を生成
+rclone copy exports gdrive:Claude/UKI論文改良bot/exports
+rclone lsf gdrive:Claude/UKI論文改良bot/exports      # 確認
+```
+
+> 注: rclone のセットアップが難しい場合、UM790 は `exports/` を git にコミット・push
+> するだけにして、Claude 側(GDrive連携が有効なセッション)から GDrive にミラーする運用も可能。
+
+---
+
 ## 5. Docker 併用について
 
 既存 Docker が 24h 稼働中でも、本ペーパーテストは **ホスト側の軽量 cron** なので

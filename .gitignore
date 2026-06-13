@@ -5,3 +5,7 @@ state/*.json
 .DS_Store
 venv/
 .venv/
+
+# ログ・エクスポート生成物
+exports/
+logs/

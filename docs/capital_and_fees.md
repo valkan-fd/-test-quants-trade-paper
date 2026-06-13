@@ -90,6 +90,21 @@ python scripts/run_oc_cost_compare.py --capital 2000000
 
 > 手数料・約定仕様・プランは改定されうる。発注前に各社・JPX公式で必ず最新を確認すること。
 
+## 端株(long-only)に変質したときの取り分の分析
+端株（SBI/moomoo）は **空売り不可 → 戦略が long-only に変質**する。どのシグナル/レジームが
+long-only で生き残るかを `side(両建/ロング/ショート)` に分解して評価できる。
+
+```bash
+python scripts/run_oc_longonly.py
+# 出力: oc_side_decomposition.csv / oc_longonly_best.csv / oc_longonly_curves.png
+```
+- `oc_side_decomposition.csv`：特徴量 × 市況 × side の 年率/SR/最大DD/勝率。
+  **ショート行**を見れば「空売りを失うと何を捨てるか」が分かる（画像では米国下落翌日の ret1/ret5 が稼ぎ頭）。
+- `oc_longonly_best.csv`：long-only を SR 降順に並べた採用候補。先頭が端株運用の推奨シグナル/レジーム。
+- SR は配分スケールに依存しないので side 間で公平に比較できる（年率は各 side 満額投資の想定）。
+
+→ 端株で行くなら、この表の long 行トップの `SIGNAL_FEATURE` / `MARKET_REGIME` を `config.py` に設定する。
+
 ## 出典
 - moomoo ひと株（手数料0円）: https://www.moomoo.com/jp/invest/jpstocks/oddlottrading , https://www.moomoo.com/jp/pricing
 - moomoo 約定タイミング・日本株信用不可: https://www.moomoo.com/jp/support/topic7_201

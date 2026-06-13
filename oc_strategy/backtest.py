@@ -63,6 +63,32 @@ def strategy_daily(sub: pd.DataFrame, feature=C.SIGNAL_FEATURE,
     return core.daily_returns_for_feature(core.filter_regime(sub, regime), feature, direction)
 
 
+def side_decomposition(sub: pd.DataFrame, direction: int = C.DIRECTION) -> pd.DataFrame:
+    """特徴量 × 市況レジーム × side(both/long/short) で指標を分解。
+
+    端株(空売り不可)で long-only に変質したとき、各シグナルがどれだけの SR/年率を残すか、
+    ショート側でどれだけ稼いでいたかを一覧にする。
+    """
+    rows = []
+    for feat in C.FEATURES:
+        for regime in ["all", "up", "down"]:
+            r = core.filter_regime(sub, regime)
+            for side in ["both", "long", "short"]:
+                daily = core.daily_returns_for_feature(r, feat, direction, side=side)
+                m = perf_metrics(daily)
+                m.update(feature=feat, regime=regime, side=side)
+                rows.append(m)
+    cols = ["feature", "regime", "side", "n_days", "ann_return", "sharpe", "max_dd", "win_rate"]
+    return pd.DataFrame(rows)[cols]
+
+
+def best_long_only(sub: pd.DataFrame, direction: int = C.DIRECTION, min_days: int = 250) -> pd.DataFrame:
+    """long-only でのシグナル×レジームを SR 降順に並べた表（端株運用の採用候補）。"""
+    tbl = side_decomposition(sub, direction)
+    lo = tbl[(tbl["side"] == "long") & (tbl["n_days"] >= min_days)].copy()
+    return lo.sort_values("sharpe", ascending=False).reset_index(drop=True)
+
+
 def run(panel: pd.DataFrame, outdir: str = C.RESULTS_DIR, make_plot: bool = True) -> dict:
     """バックテストを実行し CSV / 図を出力。指標 dict を返す。"""
     os.makedirs(outdir, exist_ok=True)
@@ -82,7 +108,7 @@ def run(panel: pd.DataFrame, outdir: str = C.RESULTS_DIR, make_plot: bool = True
             "n_dates": int(sub[C.DATE_COL].nunique())}
 
 
-def _plot_feature_grid(sub: pd.DataFrame, path: str, direction: int = C.DIRECTION):
+def _plot_feature_grid(sub: pd.DataFrame, path: str, direction: int = C.DIRECTION, side: str = "both"):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -92,11 +118,12 @@ def _plot_feature_grid(sub: pd.DataFrame, path: str, direction: int = C.DIRECTIO
               "ret5": "直近5日騰落率 (pct_change 5)", "ret21": "直近21日騰落率 (pct_change 21)"}
     regimes = [("前日S&P500 上昇 (>0)", "up", "tab:red"),
                ("前日S&P500 下落 (<0)", "down", "tab:blue")]
+    side_label = {"both": "両建", "long": "ロングのみ(端株)", "short": "ショートのみ"}[side]
 
     fig, axes = plt.subplots(2, 2, figsize=(16, 9))
     for ax, feat in zip(axes.ravel(), C.FEATURES):
         for label, regime, color in regimes:
-            daily = core.daily_returns_for_feature(core.filter_regime(sub, regime), feat, direction)
+            daily = core.daily_returns_for_feature(core.filter_regime(sub, regime), feat, direction, side=side)
             if daily.empty:
                 continue
             curve = daily.cumsum()
@@ -104,7 +131,8 @@ def _plot_feature_grid(sub: pd.DataFrame, path: str, direction: int = C.DIRECTIO
             ax.plot(curve.index, curve.values, color=color, lw=1.0,
                     label=f"{label}  (日数={daily.shape[0]}, 累積={curve.iloc[-1]:+.3f}, SR={sr:.2f})")
         ax.axhline(0.0, color="gray", lw=0.8)
-        ax.set_title(titles[feat]); ax.set_xlabel("Date"); ax.set_ylabel("累積リターン (cumsum)")
+        ax.set_title(f"{titles[feat]}  [{side_label}]")
+        ax.set_xlabel("Date"); ax.set_ylabel("累積リターン (cumsum)")
         ax.legend(fontsize=9, loc="upper left"); ax.grid(alpha=0.3)
     fig.tight_layout()
     fig.savefig(path, dpi=110, bbox_inches="tight")

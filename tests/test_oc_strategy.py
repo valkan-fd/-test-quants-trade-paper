@@ -5,7 +5,7 @@
 import numpy as np
 import pandas as pd
 
-from oc_strategy import core, forward, sizing, config as C
+from oc_strategy import core, forward, sizing, backtest, config as C
 
 
 def _mini_inputs(n_codes=25, n_days=80, seed=0):
@@ -95,6 +95,21 @@ def test_percent_fee_creates_drag():
     sim = sizing.simulate(panel, sc, feature="ret5")
     assert (sim["fee_ret"] >= 0).all()
     assert sim["fee_ret"].sum() > 0
+
+
+def test_side_decomposition_partitions():
+    """long/short の side は両建のポジションを符号で分けたもの。長短の日数は両建以下。"""
+    price, sl, al, sp = _mini_inputs()
+    panel = core.build_panel(price, sl, al, sp)
+    sub = panel[panel["InUniverse"]].dropna(subset=["ret5", "Target"])
+    both = core.daily_returns_for_feature(sub, "ret5", side="both")
+    lo = core.daily_returns_for_feature(sub, "ret5", side="long")
+    sh = core.daily_returns_for_feature(sub, "ret5", side="short")
+    assert len(lo) <= len(both) and len(sh) <= len(both)
+    # 端株long-only専用の指標が計算できる
+    tbl = backtest.side_decomposition(sub)
+    assert set(tbl["side"]) == {"both", "long", "short"}
+    assert tbl["sharpe"].notna().any()
 
 
 def test_forward_idempotent_and_no_double_count():

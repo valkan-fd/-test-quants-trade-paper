@@ -178,10 +178,24 @@ def compute_positions(group: pd.DataFrame, feature: str, direction: int = C.DIRE
     return pos.where(~((pos < 0) & restricted), 0.0)
 
 
-def daily_returns_for_feature(data: pd.DataFrame, feat: str, direction: int = C.DIRECTION) -> pd.Series:
-    """各日付について ユニバース等加重の日次戦略リターンを返す。"""
+def daily_returns_for_feature(data: pd.DataFrame, feat: str, direction: int = C.DIRECTION,
+                              side: str = "both") -> pd.Series:
+    """各日付について 等加重の日次戦略リターンを返す。
+
+    side:
+      - "both" : ユニバース全体で等加重（建てない銘柄=現金。ノートブック/画像と同じ）。
+      - "long" : ロング(pos>0)銘柄だけにフル投資（端株ロング専用＝資金を買い銘柄に均等配分）。
+      - "short": ショート(pos<0)銘柄だけにフル投資。
+    SR は配分スケールに依存しないので side 間で比較可能。年率/累積は各 side が満額投資の想定。
+    """
     d = data[[C.DATE_COL, feat, "Target", "RestrictedByJSF"]].dropna(subset=[feat, "Target"]).copy()
     d["pos"] = compute_positions(d, feat, direction)
+    if side == "long":
+        d = d[d["pos"] > 0]
+    elif side == "short":
+        d = d[d["pos"] < 0]
+    if d.empty:
+        return pd.Series(dtype=float)
     d["pnl"] = d["pos"] * d["Target"]
     return d.groupby(C.DATE_COL)["pnl"].mean().sort_index()
 

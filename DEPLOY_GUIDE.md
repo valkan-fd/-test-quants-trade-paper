@@ -1,403 +1,178 @@
-# UM790でのフォワード運用デプロイガイド
+# UM790 フォワード・ペーパーテスト デプロイガイド
 
-初期資金 **¥1,000,000** で日本大型個別株のペーパー運用を、
-UM790マシンの既存Docker環境に統合して、毎営業日 07:00 に自動実行。
+「**米セクターETF → 日本大型個別株**」のリードラグ戦略を、初期資金 **¥1,000,000** の
+仮想口座で **毎営業日 自動** にペーパー運用（デモトレ）する手順。UM790 の既存 Docker
+環境と干渉しない、ホスト側 cron 運用を前提とする。
 
----
-
-## 1. 前提条件・環境確認
-
-### 既存構成
-- UM790 マシン（Linux/Ubuntu）
-- Docker で別プログラムが 24h 稼働中
-- Python 3.11+、pip が使用可能
-- ネットワーク接続あり（market data 取得）
-
-### 新規構成
-```
-UM790
-├─ 既存 Docker Container A（24h稼働中）
-└─ 新規 cron job: run_japan_equity_forward.py
-   ├─ 毎営業日 07:00 実行
-   └─ state/japan_equity_forward.json に累積ログ
-```
+> このペーパーテストの目的: 論文の手法（特にセクターETF版が「実際にダメか」）を、
+> 流動性のある個別株へ応用したうえで前向きに検証し、実運用に値するか見極めること。
 
 ---
 
-## 2. インストール・セットアップ
+## 0. 仕組み（1日の流れ・JST）
 
-### Step 1: リポジトリを UM790 にクローン
+```
+~06:00  前夜の米国引けが確定（XLK等の終値→終値）→ シグナル算出
+ 08:00  cron が forward_cron.sh を実行
+          ├─ まだ記録していない「確定済み営業日」を遡って約定・記録（冪等）
+          └─ 「本日の発注プラン（目標ウェイト）」を表示
+ 09:00  （実運用時）日本株の寄りでリバランス（MOO）
+ 15:30  引けでエグジット（MOC）→ その日のP&Lが翌朝に確定・記録
+```
+
+毎日呼ぶだけで前向きにログ（`state/japan_equity_forward.json`）が積み上がる。
+`step` は **正規化済みウェイト（グロス=1・ドルニュートラル）** で約定し、同じ日付を
+二重記録しない（冪等）。
+
+---
+
+## 1. ワンコマンド・セットアップ
 
 ```bash
-cd /path/to/your/projects
+# リポジトリ取得
 git clone https://github.com/valkan-fd/-test-quants-trade-paper.git
 cd -test-quants-trade-paper
-
-# または、既に clone されている場合は pull
-git fetch origin
 git checkout claude/friendly-pasteur-63lyv1
-git pull origin claude/friendly-pasteur-63lyv1
+
+# venv作成 → 依存導入 → 自己診断 → cron行を表示
+bash setup_um790.sh
+
+# 問題なければ cron も自動登録
+bash setup_um790.sh --install-cron
 ```
 
-### Step 2: 仮想環境（推奨）or グローバル環境で依存インストール
+`setup_um790.sh` がやること:
+1. `python3` 確認
+2. `venv/` 作成（既存ならスキップ）
+3. `requirements.txt`（**yfinance含む**）を導入
+4. `logs/ state/ results/` 作成
+5. `check_um790.py` で疎通確認 → cron 行を表示（`--install-cron` で登録）
+
+---
+
+## 2. 自己診断（最重要）
 
 ```bash
-# 仮想環境利用の場合
-python3 -m venv venv
+source venv/bin/activate
+python scripts/check_um790.py
+```
+
+期待する結果（**すべて [OK] なら運用可能**）:
+
+```
+1. コア依存 (numpy/pandas/scipy)   [OK]
+2. yfinance                         [OK]
+3. 米国セクターETF取得              [OK]   ← UM790のネットがあれば成功
+4. 日本個別株取得                   [OK]
+5. 戦略パイプライン                 [OK]   gross=1.0, ドルニュートラル
+```
+
+> このサンドボックス（開発環境）では 3・4 が `Host not in allowlist`(403) で失敗します。
+> これは開発環境固有のネットワーク制限で、**UM790（通常のネット環境）では起きません**。
+> UM790 で 3・4 が `[OK]` になることだけ最初に必ず確認してください。
+
+---
+
+## 3. 手動テスト（cron前に1回）
+
+```bash
 source venv/bin/activate
 
-# 依存インストール
-pip install -r requirements.txt
+# 1回実行（直近の確定日を記録 + 本日の発注プラン表示）
+python scripts/run_japan_equity_forward.py --source yfinance
 
-# 実データ取得用（yfinance）— 必須
-pip install yfinance
-```
+# もう一度（冪等性確認: 「新たに確定した営業日はありません」と出るはず）
+python scripts/run_japan_equity_forward.py --source yfinance
 
-### Step 3: ディレクトリ・状態ファイル初期化
-
-```bash
-mkdir -p state logs results
-touch state/.gitkeep
-
-# 初期状態ファイルを手動作成（初回のみ）
-python3 << 'EOF'
-import json
-initial_state = {
-    "initial_capital": 1000000.0,
-    "current_equity": 1000000.0,
-    "last_weights": {},
-    "logs": []
-}
-with open("state/japan_equity_forward.json", "w") as f:
-    json.dump(initial_state, f, indent=2)
-print("[OK] state/japan_equity_forward.json を初期化")
-EOF
+# 成績ダッシュボード
+python scripts/monitor_forward.py
 ```
 
 ---
 
-## 3. ローカルテスト（デプロイ前に必須）
+## 4. cron 自動化（タイムゾーンに注意）
 
-### 合成データで動作確認
-
-```bash
-# 1回実行
-python scripts/run_japan_equity_forward.py \
-  --source synthetic \
-  --state state/test_local.json \
-  --initial 1000000
-
-# ダッシュボード確認
-python scripts/monitor_forward.py --state state/test_local.json
-```
-
-期待される出力:
-```
-[OK] YYYY-MM-DD を記録 (¥1000XXXX)
-   Signal strength : 0.4xxxxx
-   Net return      : +0.0xx%
-フォワード運用ダッシュボード
-初期資金          : ¥1,000,000
-現在評価額        : ¥1,000,XXX
-...
-```
-
-### 実データで動作確認（推奨・ネットワーク要）
+`setup_um790.sh --install-cron` を使わず手動で入れる場合:
 
 ```bash
-# 過去1ヶ月のデータで本番同様に実行
-python scripts/run_japan_equity_forward.py \
-  --source yfinance \
-  --state state/test_yfinance.json \
-  --initial 1000000 \
-  --lam 0.9
-
-# 複数日続けてテスト（翌営業日に再実行確認）
-python scripts/run_japan_equity_forward.py \
-  --source yfinance \
-  --state state/test_yfinance.json
-
-# ダッシュボード
-python scripts/monitor_forward.py --state state/test_yfinance.json
-```
-
-問題が出た場合の checklist:
-- [ ] `yfinance` が米セクターETF（XLB等）を取得できるか
-- [ ] `yfinance` が日本株（7203.T等）を取得できるか
-- [ ] `state/test_*.json` に ログが蓄積されているか
-- [ ] Signal strength > 0.05 （市場が生きているか）
-
----
-
-## 4. cron 自動化設定
-
-### Step 1: cron ジョブを登録
-
-```bash
-# crontab を編集
 crontab -e
-
-# 以下を追加（毎営業日 07:00 実行）
-0 7 * * 1-5 cd /path/to/-test-quants-trade-paper && \
-  source venv/bin/activate 2>/dev/null && \
-  python scripts/run_japan_equity_forward.py \
-  --source yfinance \
-  --state state/japan_equity_forward.json \
-  --initial 1000000 \
-  >> logs/daily_forward.log 2>&1
-
-# 保存 & 確認
-crontab -l | grep run_japan_equity
+```
+以下の **2行** を追加:
+```
+CRON_TZ=Asia/Tokyo
+0 8 * * 1-5 /絶対パス/-test-quants-trade-paper/scripts/forward_cron.sh
 ```
 
-### Step 2: ログローテーション設定
+- **`CRON_TZ=Asia/Tokyo` が重要**: UM790 が UTC 運用でも 08:00 JST に正しく実行される
+  （これが無いと、UTCマシンでは 08:00 UTC = 17:00 JST となり、日本市場の引け後に
+  なってしまう）。
+- **08:00 JST** にしている理由: 前夜の米国引け（~06:00 JST）が yfinance に取り込まれる
+  余裕を取りつつ、日本市場の寄り（09:00）前に発注プランを得るため。
+- `1-5` = 月〜金（祝日は別途。市場休場日はデータが増えないので冪等に無害）。
 
+確認:
 ```bash
-# /etc/logrotate.d/um790-forward-test を作成
-cat > /tmp/um790-forward-test << 'EOF'
-/path/to/-test-quants-trade-paper/logs/*.log {
-    daily
-    rotate 30
-    compress
-    delaycompress
-    missingok
-    notifempty
-}
-EOF
-
-# 確認（sudo 必要）
-sudo cp /tmp/um790-forward-test /etc/logrotate.d/
-sudo logrotate -v /etc/logrotate.d/um790-forward-test
-```
-
-### Step 3: cron 実行確認
-
-```bash
-# cron のジョブ実行結果を監視
-tail -f /var/log/syslog | grep CRON
-
-# または、手動で次の営業日を待たずにテスト
-# (cron 本番環境での動作確認)
-at now + 2 minutes << 'EOF'
-cd /path/to/-test-quants-trade-paper && \
-  source venv/bin/activate && \
-  python scripts/run_japan_equity_forward.py \
-  --source yfinance \
-  >> logs/test_at.log 2>&1
-EOF
-```
-
----
-
-## 5. Docker 統合（既存コンテナとの共存）
-
-既存の Docker でプログラムが 24h 稼働している場合、
-新規 cron ジョブを ホスト側で実行（軽量・干渉なし）するのが推奨。
-
-### 代替案: Docker Compose で統合運用したい場合
-
-```yaml
-# docker-compose.yml 例
-version: "3.9"
-services:
-  existing_bot:
-    # ... 既存コンテナ定義
-    environment:
-      - TZ=Asia/Tokyo
-
-  forward_test:
-    image: python:3.11
-    working_dir: /app
-    volumes:
-      - .:/app
-      - ./state:/app/state
-      - ./logs:/app/logs
-    environment:
-      - TZ=Asia/Tokyo
-    command: |
-      /bin/bash -c "
-      pip install -q -r requirements.txt &&
-      python scripts/run_japan_equity_forward.py \
-        --source yfinance \
-        --state /app/state/japan_equity_forward.json
-      "
-    restart: "no"
-    depends_on:
-      - existing_bot
-
-  # cron 代わりに APScheduler で定期実行する場合
-  scheduler:
-    image: python:3.11
-    working_dir: /app
-    volumes:
-      - .:/app
-      - ./state:/app/state
-      - ./logs:/app/logs
-    environment:
-      - TZ=Asia/Tokyo
-    command: python scripts/scheduler_runner.py
-    restart: always
-    depends_on:
-      - forward_test
-```
-
-ただし、**単純な cron ジョブで十分** な場合が多い。Docker 統合は必須でなければスキップ推奨。
-
----
-
-## 6. 日次監視・運用オペレーション
-
-### 毎日チェックすべき項目
-
-```bash
-# ダッシュボード確認（毎朝、寄り後に）
-python scripts/monitor_forward.py --state state/japan_equity_forward.json
-
-# CSV で月次レポート生成
-python scripts/monitor_forward.py --state state/japan_equity_forward.json \
-  --format csv > results/daily_forward_latest.csv
-
-# ログ確認
-tail logs/daily_forward.log
-```
-
-### 警告・アラート基準
-
-| 監視項目 | 正常 | 警告 | アクション |
-|---|---|---|---|
-| **Signal Strength** | > 0.1 | < 0.05 連続3日 | モデル更新 / λ調整 |
-| **Daily Return** | ±0.3% | < -1% 連続3日 | ドローダウン注視 |
-| **Equity** | 上昇トレンド | -10% from peak | コスト/パラメータ見直し |
-| **Turnover** | 0.1~0.5 | > 1.0 毎日 | window 拡大 / λ増加 |
-
-### 月次レビュー（毎月末）
-
-```bash
-# 月間 Sharpe, Deflation 分析
-python scripts/monitor_forward.py \
-  --state state/japan_equity_forward.json \
-  --format json > results/monthly_review.json
-
-# エクセルで可視化 (CSV export)
-python scripts/monitor_forward.py \
-  --format csv >> results/daily_logs_archive.csv
-```
-
----
-
-## 7. 実運用への分岐点（目安）
-
-forward ペーパー運用が以下を **3ヶ月以上** 満たしたら実運用検討：
-
-```
-□ 平均 R/R ≥ OOS平均(2.87) × 70% = 2.0
-□ Deflation < 30%（初期パフォーマンスの減衰許容）
-□ 最大DD < 15%（ロスカット基準はここを下回らない）
-□ 実行コスト（turnover×bps）≤ 期待α × 30%
-□ 市場regime に関わらず安定（Sharpe 標準偏差 < 1.0）
-```
-
-達成時:
-
-```bash
-# 実ブローカー API に接続（実装例）
-# src/paper_trading.py の BrokerAdapter を国内証券API（例: kabu.com）に実装
-
-# 実運用開始
-python scripts/run_japan_equity_live.py \
-  --broker kabu \
-  --api-key YOUR_API_KEY \
-  --account ACCOUNT_ID \
-  --initial-capital 1000000
-```
-
----
-
-## 8. トラブルシューティング
-
-### Q. cron が実行されない
-
-```bash
-# ① crontab に登録されているか確認
 crontab -l
-
-# ② シェルスクリプトパスが正しいか
-which python3
-
-# ③ cron ログで実行状況確認
-grep CRON /var/log/syslog | tail -20
-
-# ④ 手動で cron コマンド実行テスト
-cd /path/to/-test-quants-trade-paper && \
-  source venv/bin/activate && \
-  python scripts/run_japan_equity_forward.py --source yfinance
+tail -f logs/daily_forward.log   # 実行ログ
 ```
 
-### Q. Signal Strength が < 0.05 で消えている
+---
+
+## 5. Docker 併用について
+
+既存 Docker が 24h 稼働中でも、本ペーパーテストは **ホスト側の軽量 cron** なので
+干渉しない（数秒のPython実行が日1回だけ）。Docker内で動かしたい場合のみ、別コンテナ
+＋ `forward_cron.sh` を使うが、通常はホスト cron で十分。
+
+---
+
+## 6. 日々の監視
 
 ```bash
-# ① データを確認（市場が低波動か）
-python3 << 'EOF'
-import yfinance as yf
-import pandas as pd
-us_data = yf.download(['XLB'], period='5d')['Close'].pct_change().dropna()
-print(f"米国セクター直近ボラ: {us_data.std():.4f}")
-EOF
-
-# ② λ を下げる / window を伸ばす / factors を増やす
-python scripts/run_japan_equity_forward.py \
-  --source yfinance \
-  --state state/test_params.json \
-  --lam 0.7 --window 180 --factors 5
+python scripts/monitor_forward.py                 # サマリ表示
+python scripts/monitor_forward.py --format csv     # CSV（表計算へ）
+python scripts/monitor_forward.py --format json    # 機械可読
 ```
 
-### Q. yfinance でデータが取得できない
+| 監視項目 | 正常 | 警告 | 対応 |
+|---|---|---|---|
+| Signal strength | > 0.1 | < 0.05 が継続 | 低波動。`--window` 拡大 / `--lam` 低下を検討 |
+| Turnover | 0.5〜2 | 毎日 > 3 | 過回転。`--lam` を上げる |
+| Daily net | ±0.3% | < -1% が3日連続 | DD注視。コスト設定確認 |
+| Equity | 緩やか上昇 | peak比 -10% | パラメータ再検討 |
+
+---
+
+## 7. 実運用への分岐点（3ヶ月以上の観察後）
+
+```
+□ フォワードの平均 R/R ≥ 期間外OOS平均(≈2.3) × 70% ≈ 1.6
+□ Deflation < 30%（過去検証からの減衰）
+□ 最大DD < 15%
+□ 実行コスト(turnover×bps) ≤ 期待α × 30%
+```
+満たせば、`src/paper_trading.py` の `BrokerAdapter` を国内証券API（例: kabu.com の
+kabuステーションAPI）に実装して実発注へ。
+
+---
+
+## 8. トラブルシュート
+
+| 症状 | 確認・対応 |
+|---|---|
+| cron が動かない | `crontab -l`、`grep CRON /var/log/syslog`、`CRON_TZ` 行の有無 |
+| yfinance が空 | `python scripts/check_um790.py`、`pip install -U yfinance`、ネット/プロキシ |
+| 8:00 に動くが日本株が古い | 祝日 or データ遅延。翌営業日に自動キャッチアップされる |
+| ログが二重 | 冪等なので実害なし。同一日付は1回だけ記録される |
+
+---
+
+## 付録: 主要コマンド早見表
 
 ```bash
-# ① ネットワーク疎通確認
-ping -c 1 query1.finance.yahoo.com
-
-# ② yfinance をアップグレード
-pip install --upgrade yfinance
-
-# ③ プロキシ経由が必要か確認
-# → UM790 ネットワーク管理者に確認
+bash setup_um790.sh [--install-cron]                       # セットアップ
+python scripts/check_um790.py                              # 自己診断
+python scripts/run_japan_equity_forward.py --source yfinance  # 1日分の実行
+python scripts/monitor_forward.py                          # 成績確認
+python scripts/walk_forward_oos.py --source yfinance       # 期間外(OOS)検証
 ```
-
----
-
-## 9. 参考リンク
-
-- **GitHub リポジトリ**: https://github.com/valkan-fd/-test-quants-trade-paper
-- **論文**: [部分空間正則化付きPCA日米業種リードラグ投資戦略](https://www.jstage.jst.go.jp/article/jsaisigtwo/2026/FIN-036/2026_76/)
-- **スマート投資チャンネル**: 手法の元祖による解説＆8年運用トラックレコード
-- **yfinance ドキュメント**: https://yfinance.readthedocs.io/
-
----
-
-## 10. サポート・質問
-
-問題が発生した場合:
-
-1. `logs/daily_forward.log` でエラーメッセージ確認
-2. `scripts/monitor_forward.py` で最新P&L確認
-3. `state/japan_equity_forward.json` の logs 配列でシグナル強度確認
-4. テスト用の `--source synthetic` で既知の動作確認
-
----
-
-## チェックリスト（デプロイ前）
-
-- [ ] Python 3.11+、pip インストール確認
-- [ ] requirements.txt から依存インストール完了
-- [ ] yfinance で米国セクターETF取得確認
-- [ ] yfinance で日本株取得確認
-- [ ] `scripts/run_japan_equity_forward.py --source synthetic` で動作確認
-- [ ] `state/japan_equity_forward.json` 初期化完了
-- [ ] crontab 登録確認
-- [ ] `logs/daily_forward.log` ディレクトリ存在確認
-- [ ] ログローテーション設定完了
-- [ ] 既存Docker等との干渉なし確認
-
-✅ すべてチェック完了 → **本番デプロイ Go!**
-

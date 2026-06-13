@@ -211,22 +211,27 @@ def fetch_yfinance_equity_data(jp_tickers: list[str], start: str = "2018-01-01",
     jp_raw = yf.download(list(jp_tickers), start=start, end=end,
                          auto_adjust=True, progress=False)
 
-    # 米国: 終値→終値リターン
-    us_close = us_raw["Close"][us_tickers]
-    us_cc = us_close.pct_change().dropna(how="all")
+    # 米国: 終値→終値リターン (取得できた銘柄だけ残す = 一部失敗に頑健)
+    us_close = us_raw["Close"]
+    us_avail = [tk for tk in us_tickers if tk in us_close.columns]
+    if not us_avail:
+        raise RuntimeError(
+            "米国セクターETFを1銘柄も取得できませんでした。"
+            "ネットワーク/プロキシ、または yfinance のバージョンを確認してください。")
+    us_cc = us_close[us_avail].pct_change().dropna(how="all")
 
     # 日本個別株: 始値→終値リターン (Close/Open - 1)
     jp_close = jp_raw["Close"]
     jp_open = jp_raw["Open"]
-    # download で全銘柄取得できたものだけ残す(上場廃止・コード変更に頑健)
     avail = [tk for tk in jp_tickers if tk in jp_close.columns]
     if not avail:
-        raise RuntimeError("日本株データが1銘柄も取得できませんでした。ティッカーを確認してください。")
+        raise RuntimeError(
+            "日本株データを1銘柄も取得できませんでした。ティッカー(.T)を確認してください。")
     jp_oc = (jp_close[avail] / jp_open[avail] - 1.0).dropna(how="all")
 
     common = us_cc.index.intersection(jp_oc.index)
     if len(common) == 0:
-        raise RuntimeError("米国/日本の共通営業日がありません。")
+        raise RuntimeError("米国/日本の共通営業日がありません。期間設定を確認してください。")
     return MarketData(us_cc=us_cc.loc[common].ffill().dropna(how="all"),
                       jp_oc=jp_oc.loc[common].ffill().dropna(how="all"))
 

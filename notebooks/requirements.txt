@@ -7,3 +7,4 @@ pyarrow>=12.0          # parquet 読み込み
 yfinance>=0.2          # S&P500 (^GSPC) 取得（要ネットワーク）
 japanize-matplotlib    # グラフの日本語表示（無くてもフォント自動探索でフォールバック）
 jupyterlab             # ノートブック実行環境（jupyter notebook でも可）
+jquants-api-client     # 実データ取得（フォワードテスト用、import 名 jquantsapi）。要 有料プラン

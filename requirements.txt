@@ -4,5 +4,7 @@ scipy>=1.10
 matplotlib>=3.6
 # 実データ・ペーパーテスト(--source yfinance)に必須:
 yfinance>=0.2
+# Docker スケジューラー(毎営業日自動実行):
+apscheduler>=3.10
 # 実ペーパー口座(Alpaca, 米国ETF)に接続する場合:
 # alpaca-py>=0.20

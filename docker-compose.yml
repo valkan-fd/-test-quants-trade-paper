@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  forward_service:
+    build: .
+    container_name: um790_forward_paper_test
+    restart: unless-stopped
+    environment:
+      # タイムゾーン設定（スケジューラーが正確に 08:00 JST に実行される）
+      TZ: Asia/Tokyo
+      # GDrive 同期先（オプション）
+      # 設定例: GDRIVE_REMOTE=gdrive:Claude/UKI論文改良bot
+      GDRIVE_REMOTE: ${GDRIVE_REMOTE:-}
+    volumes:
+      # ローカルのディレクトリをマウント（コンテナ終了後もデータ保持）
+      - ./logs:/app/logs
+      - ./state:/app/state
+      - ./results:/app/results
+      - ./exports:/app/exports
+      # rclone 設定ディレクトリ（GDrive認証情報）
+      - ~/.config/rclone:/root/.config/rclone:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # ホスト側から コンテナログ確認
+    # docker logs -f um790_forward_paper_test

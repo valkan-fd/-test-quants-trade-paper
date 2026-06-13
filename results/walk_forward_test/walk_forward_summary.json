@@ -1,0 +1,92 @@
+{
+  "windows": [
+    {
+      "start_date": "2018-01-01",
+      "end_date": "2019-03-18",
+      "metrics": {
+        "annual_return": 0.09848150894106128,
+        "annual_vol": 0.07044772848689111,
+        "sharpe": 1.3979373225552145,
+        "max_drawdown": -0.022618143861896756,
+        "hit_rate": 0.5967741935483871,
+        "avg_turnover": 0.0005,
+        "n_days": 62,
+        "total_return": 0.023905376709161263
+      },
+      "n_trades": 62,
+      "avg_turnover": 0.0005
+    },
+    {
+      "start_date": "2018-12-19",
+      "end_date": "2020-03-04",
+      "metrics": {
+        "annual_return": 0.1711753374914335,
+        "annual_vol": 0.049073512530961864,
+        "sharpe": 3.488141130786881,
+        "max_drawdown": -0.017163010143178448,
+        "hit_rate": 0.6451612903225806,
+        "avg_turnover": 0.0005,
+        "n_days": 62,
+        "total_return": 0.04269552492510109
+      },
+      "n_trades": 62,
+      "avg_turnover": 0.0005
+    },
+    {
+      "start_date": "2019-12-06",
+      "end_date": "2021-02-19",
+      "metrics": {
+        "annual_return": 0.1507654384121583,
+        "annual_vol": 0.04679842878112027,
+        "sharpe": 3.221591885430587,
+        "max_drawdown": -0.01037735332499945,
+        "hit_rate": 0.5483870967741935,
+        "avg_turnover": 0.0005,
+        "n_days": 62,
+        "total_return": 0.037503705897353745
+      },
+      "n_trades": 62,
+      "avg_turnover": 0.0005
+    },
+    {
+      "start_date": "2020-11-24",
+      "end_date": "2022-02-08",
+      "metrics": {
+        "annual_return": 0.03357910643954896,
+        "annual_vol": 0.058524346659834275,
+        "sharpe": 0.5737630295084449,
+        "max_drawdown": -0.021403580661538024,
+        "hit_rate": 0.4838709677419355,
+        "avg_turnover": 0.0005,
+        "n_days": 62,
+        "total_return": 0.007877146709054816
+      },
+      "n_trades": 62,
+      "avg_turnover": 0.0005
+    },
+    {
+      "start_date": "2021-11-11",
+      "end_date": "2023-01-26",
+      "metrics": {
+        "annual_return": 0.2548508772687678,
+        "annual_vol": 0.04492055517731995,
+        "sharpe": 5.673368823309648,
+        "max_drawdown": -0.00731337343967553,
+        "hit_rate": 0.5967741935483871,
+        "avg_turnover": 0.0005,
+        "n_days": 62,
+        "total_return": 0.06441574580509823
+      },
+      "n_trades": 62,
+      "avg_turnover": 0.0005
+    }
+  ],
+  "overall_metrics": {
+    "annual_return_mean": 0.141770453710594,
+    "annual_return_min": 0.03357910643954896,
+    "annual_return_max": 0.2548508772687678,
+    "sharpe_mean": 2.8709604383181553,
+    "sharpe_min": 0.5737630295084449,
+    "sharpe_max": 5.673368823309648
+  }
+}

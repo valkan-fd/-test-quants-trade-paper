@@ -114,12 +114,25 @@ def test_side_decomposition_partitions():
 
 def test_forward_idempotent_and_no_double_count():
     price, sl, al, sp = _mini_inputs()
-    state = {"last_decision_date": None, "equity": float(C.INITIAL_EQUITY),
-             "history": [], "pending": None, "config": {}}
-    r1 = forward.step(price=price, stock_list=sl, alert=al, sp=sp, state=state)
-    n1 = r1["new_days"]
-    assert n1 > 0
-    r2 = forward.step(price=price, stock_list=sl, alert=al, sp=sp, state=r1["state"])
+    panel = core.build_panel(price, sl, al, sp)
+    prof = forward.default_profiles(capital=2_000_000)[1]   # B_mini_long
+    state = forward.load_state(prof)
+    r1 = forward.step(prof, panel=panel, state=state)
+    assert r1["new_days"] > 0
+    r2 = forward.step(prof, panel=panel, state=r1["state"])
     assert r2["new_days"] == 0          # 同じデータなら追加なし
     hist = pd.DataFrame(r2["state"]["history"])
     assert len(hist) == hist["decision_date"].nunique()   # 二重計上なし
+
+
+def test_forward_two_profiles_independent():
+    """A(ショート可) と B(ロング専用) は別 state で独立に積み上がる。"""
+    price, sl, al, sp = _mini_inputs()
+    panel = core.build_panel(price, sl, al, sp)
+    profs = forward.default_profiles(capital=2_000_000)
+    a = forward.step(profs[0], panel=panel, state=forward.load_state(profs[0]))
+    b = forward.step(profs[1], panel=panel, state=forward.load_state(profs[1]))
+    assert a["profile"] == "A_short_margin" and b["profile"] == "B_mini_long"
+    # B はロング専用なので pending にショートは無い
+    bp = b["state"]["pending"]
+    assert bp.get("n_short", 0) == 0

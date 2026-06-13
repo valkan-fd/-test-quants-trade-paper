@@ -81,11 +81,20 @@ python scripts/run_oc_backtest.py
 
 ```bash
 python scripts/fetch_jquants.py --start 2014-01-01 --end $(date +%F)   # データ更新
-python scripts/run_oc_forward.py                                       # 1ステップ前進
+python scripts/run_oc_forward.py --capital 2000000                     # A/B 両方を1ステップ前進
 ```
-- `state/oc_forward_state.json` に進捗を永続化（**何度呼んでも二重計上しない**）。
-- 出力：`results/oc_forward_returns.csv`（日次リターン・エクイティ）、`results/oc_forward_equity.png`。
-- 実行ログに「翌営業日の建玉（L/S/flat 数）」も表示。これが翌寄りで建てる予定のポジション。
+**2方式を同時にペーパー検証**（`oc_strategy/forward.py::default_profiles`）：
+- `A_short_margin`：単元＋一日信用（両建＝ショート可）。戦略フル。
+- `B_mini_long`：ミニ株/端株（ロング専用・0円想定）。多銘柄分散。
+
+いずれも **手数料・資金制約込みのネットリターン**（`sizing.py`）で積み上げる。各プロファイルは
+`state/oc_forward_<name>.json` に独立永続化（**二重計上なし**）。
+出力：`results/oc_forward_<name>.csv`／`.png`、比較図 `results/oc_forward_compare.png`。
+実行ログに各方式の「翌営業日の建玉（L/S 数）」も表示（B はショート0）。
+
+> プロファイルの採用シグナル/レジームは `config.py` の `SIGNAL_FEATURE`/`MARKET_REGIME`、
+> 資金・手数料は `--capital` と `sizing.FEES`/`default_profiles` で調整。
+> A は `run_oc_backtest.py`、B は `run_oc_longonly.py` の結果から最適を選ぶ。
 
 ### 仕組み（リーク防止）
 1. **判断**：最新の完了日 `t`（前日引け後に確定）でユニバース・特徴量を計算し、翌日 `t+1` の建玉を `pending` に保存。

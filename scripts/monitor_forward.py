@@ -29,8 +29,11 @@ def load_state(path: str | Path) -> dict:
         return json.load(f)
 
 
-def compute_cumulative_metrics(logs: list[dict]) -> dict:
-    """ログから累積指標を計算."""
+def compute_cumulative_metrics(logs: list[dict], initial_capital: float | None = None) -> dict:
+    """ログから累積指標を計算.
+
+    total_return は initial_capital を基準にする（初日の損益も含める）。
+    """
     if not logs:
         return {}
 
@@ -39,7 +42,8 @@ def compute_cumulative_metrics(logs: list[dict]) -> dict:
     dates = pd.Series([pd.to_datetime(log['date']) for log in logs])
 
     n_days = len(rets)
-    total_ret = equity.iloc[-1] / equity.iloc[0] - 1 if len(equity) > 0 else 0
+    base = initial_capital if initial_capital else equity.iloc[0]
+    total_ret = equity.iloc[-1] / base - 1 if len(equity) > 0 else 0
     annual_ret = total_ret * 252 / max(n_days, 1)
 
     # ボラティリティ（年率）
@@ -117,7 +121,7 @@ def main() -> None:
     current_equity = state.get('current_equity', state.get('initial_capital', 0))
     initial_capital = state.get('initial_capital', 0)
 
-    metrics = compute_cumulative_metrics(logs)
+    metrics = compute_cumulative_metrics(logs, initial_capital=initial_capital)
     monthly = rolling_monthly_performance(logs, window_days=args.window)
 
     if args.format == "table":

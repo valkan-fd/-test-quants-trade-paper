@@ -19,9 +19,9 @@ import pandas as pd
 
 from src.config import StrategyConfig
 from src.data import get_data_source
+from src.backtest import to_weights
 from src.forward_test import DailyForwardSimulator
-from src.signal import predict_next_day_jp, StandardScaler
-from src.pca import build_prior_subspace, subspace_regularized_pca
+from src.signal import predict_next_day_jp_detailed
 
 
 def main() -> None:
@@ -49,40 +49,27 @@ def main() -> None:
         return
 
     # 最新の「予測可能日」 t (翌日t+1が存在)
-    t_latest = T - 2
-    t = t_latest
+    t = T - 2
     date_exec = dates[t + 1]  # 寄りの建玉日
 
-    # 予測実行
-    us_window = us[t - cfg.window:t]
-    jp_window_next = jp[t - cfg.window + 1:t + 1]
-    us_today = us[t]
+    # 予測 + 正規化ウェイト
+    pred, f_hat, _ = predict_next_day_jp_detailed(
+        us[t - cfg.window:t], jp[t - cfg.window + 1:t + 1], us[t],
+        lam=cfg.lam, k=cfg.n_factors)
+    w = to_weights(pred, cfg)
 
-    # シグナル計算（factorの詳細も抽出）
-    n_us, n_jp = data.n_us, data.n_jp
-    sc_us = StandardScaler().fit(us_window)
-    sc_jp = StandardScaler().fit(jp_window_next)
-    z_us = sc_us.transform(us_window)
-    z_jp = sc_jp.transform(jp_window_next)
-    joint = np.hstack([z_us, z_jp])
-    prior = build_prior_subspace(n_us, n_jp)
-    W, eigvals = subspace_regularized_pca(joint, prior, lam=cfg.lam, k=cfg.n_factors)
-    W_us = W[:n_us, :]
-    W_jp = W[n_us:, :]
-    z_us_today = sc_us.transform(us_today.reshape(1, -1)).ravel()
-    f_hat, *_ = np.linalg.lstsq(W_us, z_us_today, rcond=None)
-    z_jp_pred = W_jp @ f_hat
-    pred = sc_jp.inverse_std(z_jp_pred)
-
-    # シミュレータ実行
+    # シミュレータ実行（冪等: 同じ日付は二重記録しない）
     sim = DailyForwardSimulator(args.state, initial_capital=1_000_000.0)
+    if sim.last_date() is not None and str(date_exec.date()) <= sim.last_date():
+        print(f"[情報] {date_exec.date()} は記録済みです（最終記録: {sim.last_date()}）。")
+        print(sim.report())
+        return
 
-    # 実現リターン（当日引けまで）
+    weights = {jp_cols[i]: float(w[i]) for i in range(len(jp_cols))}
     realized = {jp_cols[i]: float(jp[t + 1][i]) for i in range(len(jp_cols))}
-
-    # ステップ実行
-    log = sim.step(date_exec, {}, realized, cfg,
-                   signal=pred, factor_scores=[float(f) for f in f_hat])
+    log = sim.step(date_exec, weights, realized, cfg,
+                   signal_strength=float(np.linalg.norm(pred)),
+                   factor_scores=[float(f) for f in f_hat])
     sim.save()
 
     print(f"[OK] {log.date} を記録")

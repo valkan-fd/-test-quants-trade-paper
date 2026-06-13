@@ -147,3 +147,94 @@ def get_data_source(source: str, **kwargs):
     if source == "yfinance":
         return YFinanceDataSource(**kwargs)
     raise ValueError(f"unknown source: {source}")
+
+
+# --------------------------------------------------------------------------- #
+# 日本「個別株」版データ (米セクターETF -> 日本大型個別株)
+#   - 売買対象を流動性の低いセクターETFから、流動性のある個別株へ拡張した版。
+#   - MarketData は universe 非依存なので、jp_oc の列を個別株にするだけで
+#     既存の signal / backtest / forward エンジンがそのまま使える。
+# --------------------------------------------------------------------------- #
+def make_synthetic_equity_data(jp_tickers: list[str], n_days: int = 1500,
+                               seed: int = 42, leadlag_strength: float = 0.38,
+                               noise: float = 0.012) -> MarketData:
+    """米セクター × 日本個別株 の合成データ.
+
+    SyntheticDataSource と同じく「当日の米国 us_cc[t] と翌日の個別株 jp_oc[t+1]」が
+    共通潜在ファクター f[t] で駆動されるよう設計。各個別株が異なるローディングを持つ
+    ため、横断方向(銘柄選別)に意味のあるリードラグαが生じる。
+    """
+    rng = np.random.default_rng(seed)
+    us_tickers = list(US_SECTOR_ETFS)
+    n_us, n_jp, T, K = len(us_tickers), len(jp_tickers), n_days, 6
+
+    f = np.zeros((T, K))
+    phi = np.array([0.10, 0.05, 0.05, 0.04, 0.03, 0.03])
+    scale = np.array([1.0, 0.6, 0.5, 0.45, 0.4, 0.35]) * 0.012
+    for t in range(1, T):
+        f[t] = phi * f[t - 1] + rng.standard_normal(K) * scale
+
+    B_us = rng.standard_normal((n_us, K)) * 0.7
+    B_jp = rng.standard_normal((n_jp, K)) * 0.7
+    B_us[:, 0] = np.abs(B_us[:, 0]) + 0.6   # グローバル因子: 全資産が正に反応
+    B_jp[:, 0] = np.abs(B_jp[:, 0]) + 0.6
+
+    us = f @ B_us.T + rng.standard_normal((T, n_us)) * noise
+    jp = np.zeros((T, n_jp))
+    jp_idio = rng.standard_normal((T, n_jp)) * noise
+    for t in range(T - 1):
+        jp[t + 1] = leadlag_strength * (f[t] @ B_jp.T) + jp_idio[t + 1]
+    jp[0] = jp_idio[0]
+
+    idx = pd.bdate_range("2018-01-01", periods=T)
+    return MarketData(
+        us_cc=pd.DataFrame(us, index=idx, columns=us_tickers),
+        jp_oc=pd.DataFrame(jp, index=idx, columns=list(jp_tickers)),
+    )
+
+
+def fetch_yfinance_equity_data(jp_tickers: list[str], start: str = "2018-01-01",
+                               end: str | None = None) -> MarketData:
+    """米セクターETF(終値→終値) × 日本個別株(始値→終値) を yfinance で取得.
+
+    ネットワーク必須・要 yfinance。UM790等のローカル環境で使用する。
+    """
+    try:
+        import yfinance as yf
+    except ImportError as e:  # pragma: no cover
+        raise RuntimeError("yfinance が必要です: pip install yfinance") from e
+
+    us_tickers = list(US_SECTOR_ETFS)
+
+    us_raw = yf.download(us_tickers, start=start, end=end,
+                         auto_adjust=True, progress=False)
+    jp_raw = yf.download(list(jp_tickers), start=start, end=end,
+                         auto_adjust=True, progress=False)
+
+    # 米国: 終値→終値リターン
+    us_close = us_raw["Close"][us_tickers]
+    us_cc = us_close.pct_change().dropna(how="all")
+
+    # 日本個別株: 始値→終値リターン (Close/Open - 1)
+    jp_close = jp_raw["Close"]
+    jp_open = jp_raw["Open"]
+    # download で全銘柄取得できたものだけ残す(上場廃止・コード変更に頑健)
+    avail = [tk for tk in jp_tickers if tk in jp_close.columns]
+    if not avail:
+        raise RuntimeError("日本株データが1銘柄も取得できませんでした。ティッカーを確認してください。")
+    jp_oc = (jp_close[avail] / jp_open[avail] - 1.0).dropna(how="all")
+
+    common = us_cc.index.intersection(jp_oc.index)
+    if len(common) == 0:
+        raise RuntimeError("米国/日本の共通営業日がありません。")
+    return MarketData(us_cc=us_cc.loc[common].ffill().dropna(how="all"),
+                      jp_oc=jp_oc.loc[common].ffill().dropna(how="all"))
+
+
+def load_japan_equity_data(source: str, jp_tickers: list[str], **kwargs) -> MarketData:
+    """米セクター × 日本個別株 の MarketData を返す統一ローダ."""
+    if source == "synthetic":
+        return make_synthetic_equity_data(jp_tickers, **kwargs)
+    if source == "yfinance":
+        return fetch_yfinance_equity_data(jp_tickers, **kwargs)
+    raise ValueError(f"unknown source: {source}")

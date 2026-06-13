@@ -2,7 +2,7 @@ numpy>=1.24
 pandas>=2.0
 scipy>=1.10
 matplotlib>=3.6
-# 実データでの再現に必要(ローカル/ネットワーク環境):
-# yfinance>=0.2
+# 実データ・ペーパーテスト(--source yfinance)に必須:
+yfinance>=0.2
 # 実ペーパー口座(Alpaca, 米国ETF)に接続する場合:
 # alpaca-py>=0.20

@@ -1,0 +1,92 @@
+{
+  "windows": [
+    {
+      "start_date": "2018-06-19",
+      "end_date": "2019-06-05",
+      "metrics": {
+        "annual_return": 0.19870899680211176,
+        "annual_vol": 0.06044361583021569,
+        "sharpe": 3.287510088084065,
+        "max_drawdown": -0.0233131584976366,
+        "hit_rate": 0.5753968253968254,
+        "avg_turnover": 1.2796641595894898,
+        "n_days": 252,
+        "total_return": 0.2175168577816864
+      },
+      "n_trades": 252,
+      "avg_turnover": 1.2796641595894898
+    },
+    {
+      "start_date": "2019-06-06",
+      "end_date": "2020-05-22",
+      "metrics": {
+        "annual_return": 0.2010209723141987,
+        "annual_vol": 0.05480660929119979,
+        "sharpe": 3.6678235511,
+        "max_drawdown": -0.023712173350606602,
+        "hit_rate": 0.5714285714285714,
+        "avg_turnover": 1.2730339239266566,
+        "n_days": 252,
+        "total_return": 0.2207299550268449
+      },
+      "n_trades": 252,
+      "avg_turnover": 1.2730339239266566
+    },
+    {
+      "start_date": "2020-05-25",
+      "end_date": "2021-05-11",
+      "metrics": {
+        "annual_return": 0.18208488970091058,
+        "annual_vol": 0.055758615271001635,
+        "sharpe": 3.2655920312211806,
+        "max_drawdown": -0.021599887008604934,
+        "hit_rate": 0.5912698412698413,
+        "avg_turnover": 1.3063125101254072,
+        "n_days": 252,
+        "total_return": 0.1977838513144159
+      },
+      "n_trades": 252,
+      "avg_turnover": 1.3063125101254072
+    },
+    {
+      "start_date": "2021-05-12",
+      "end_date": "2022-04-28",
+      "metrics": {
+        "annual_return": 0.016854132479934104,
+        "annual_vol": 0.06289150723935343,
+        "sharpe": 0.267987415467567,
+        "max_drawdown": -0.08114174138076935,
+        "hit_rate": 0.503968253968254,
+        "avg_turnover": 1.2902282644780672,
+        "n_days": 252,
+        "total_return": 0.014995008560275247
+      },
+      "n_trades": 252,
+      "avg_turnover": 1.2902282644780672
+    },
+    {
+      "start_date": "2022-04-29",
+      "end_date": "2023-04-17",
+      "metrics": {
+        "annual_return": 0.06812092149750064,
+        "annual_vol": 0.05523476627572662,
+        "sharpe": 1.2332979043931782,
+        "max_drawdown": -0.04101973589562058,
+        "hit_rate": 0.5238095238095238,
+        "avg_turnover": 1.3675234820560238,
+        "n_days": 252,
+        "total_return": 0.06886073058281417
+      },
+      "n_trades": 252,
+      "avg_turnover": 1.3675234820560238
+    }
+  ],
+  "overall_metrics": {
+    "annual_return_mean": 0.1333579825589311,
+    "annual_return_min": 0.016854132479934104,
+    "annual_return_max": 0.2010209723141987,
+    "sharpe_mean": 2.344442198053198,
+    "sharpe_min": 0.267987415467567,
+    "sharpe_max": 3.6678235511
+  }
+}

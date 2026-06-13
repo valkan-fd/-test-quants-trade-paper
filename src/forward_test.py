@@ -108,52 +108,37 @@ class DailyForwardSimulatorState:
 def run_walk_forward(
     data: MarketData,
     cfg: StrategyConfig,
-    train_window: int = 252,      # 1年
-    test_window: int = 63,         # 1四半期
-    step: int = 63,                # 四半期ごとに進める
+    train_window: int = 252,      # 互換のため残置(現状では未使用)
+    test_window: int = 63,         # 期間分割の長さ(営業日)
+    step: int = 63,                # 期間を進める幅(営業日)
 ) -> WalkForwardResult:
-    """ウォークフォワードOOS検証.
+    """ウォークフォワード(期間外)検証.
 
-    学習窓と検証窓を逐次スライドさせ、複数期間のOOS性能を測定。
+    本戦略は「各営業日 t で過去窓のみから推定し翌日 t+1 を予測する」完全な因果
+    (causal)バックテストであり、構造的にすべての取引が期間外(OOS)である。
+    そこでまず全期間の因果バックテストを1回実行し、その日次リターンを test_window
+    ごとのサブ期間に分割して、期間別の安定性(regime依存性)を測定する。
+
+    これにより「学習後の未来だけで評価する」OOSの趣旨を、リークなく正しく実現する。
     """
-    dates = data.dates
-    T = len(dates)
-    windows = []
+    bt = run_backtest(data, cfg)
+    rets = bt.daily_returns          # index=実現日(t+1)
+    turn = bt.turnover
+    windows: list[BacktestWindow] = []
 
-    for t_start in range(0, T - train_window - test_window, step):
-        t_train_end = t_start + train_window
-        t_test_end = t_train_end + test_window
-
-        if t_test_end > T:
-            break
-
-        # 訓練窓内でデータを部分抽出（backtest入力用）
-        train_data = MarketData(
-            us_cc=data.us_cc.iloc[t_start:t_train_end],
-            jp_oc=data.jp_oc.iloc[t_start:t_train_end]
-        )
-
-        # バックテスト実行（この訓練窓に対してのみ学習）
-        bt = run_backtest(train_data, cfg)
-        train_metrics = bt.metrics
-
-        # 検証窓内でのOOS評価
-        test_rets = []
-        for t in range(t_train_end, t_test_end - 1):
-            # この時点では[0..t_train_end)の履歴のみ見えると仮定
-            # 実装: 訓練窓を[t_start, t_train_end)固定で、test期間内の毎日をOOS推定
-            # （簡略版: test期間のreturn distをそのまま使う）
-            test_rets.append(bt.daily_returns.iloc[t - t_train_end] if t - t_train_end < len(bt.daily_returns) else 0.0)
-
-        test_rets = pd.Series(test_rets)
-        test_metrics = compute_metrics(test_rets, pd.Series([cfg.cost_bps/1e4] * len(test_rets)), cfg)
-
+    n = len(rets)
+    for s in range(0, n - test_window + 1, step):
+        seg_rets = rets.iloc[s:s + test_window]
+        seg_turn = turn.iloc[s:s + test_window]
+        if len(seg_rets) < 2:
+            continue
+        seg_metrics = compute_metrics(seg_rets, seg_turn, cfg)
         windows.append(BacktestWindow(
-            start_date=str(dates[t_start].date()),
-            end_date=str(dates[t_test_end].date()),
-            metrics=test_metrics,
-            n_trades=len(test_rets),
-            avg_turnover=np.mean([cfg.cost_bps/1e4] * len(test_rets)) if len(test_rets) > 0 else 0.0
+            start_date=str(seg_rets.index[0].date()),
+            end_date=str(seg_rets.index[-1].date()),
+            metrics=seg_metrics,
+            n_trades=len(seg_rets),
+            avg_turnover=float(seg_turn.mean()),
         ))
 
     # 全体統計
@@ -210,41 +195,36 @@ class DailyForwardSimulator:
                         for log in data.get('logs', [])]
         self.state_path.write_text(json.dumps(data, ensure_ascii=False, indent=2, default=str))
 
-    def step(self, date: pd.Timestamp, us_returns: dict[str, float],
-             jp_returns: dict[str, float], cfg: StrategyConfig,
-             signal: np.ndarray | None = None,
+    def last_date(self) -> str | None:
+        """最後に記録した営業日(YYYY-MM-DD)。未記録なら None。冪等性判定に使う。"""
+        return self.state.logs[-1].date if self.state.logs else None
+
+    def step(self, date: pd.Timestamp, weights: dict[str, float],
+             realized: dict[str, float], cfg: StrategyConfig,
+             signal_strength: float = 0.0,
              factor_scores: list[float] | None = None) -> DailyForwardLog:
-        """1営業日を進める.
+        """1営業日を約定・記録する.
 
         Parameters
         ----------
-        date : 約定日（寄りで建玉、引けでマーク）
-        us_returns : 米国セクター当日リターン {ticker: ret}
-        jp_returns : 日本銘柄リターン {ticker: ret}  (当日引けまで)
-        cfg : 戦略設定
-        signal : 予測シグナル（numpy array or None）
-        factor_scores : 因子スコア [f1, f2, ...]
+        date     : 約定日（寄りで建玉、引けでマーク）
+        weights  : **正規化済み** 目標ウェイト {ticker: w}（呼び出し側で to_weights 済み。
+                   ドルニュートラル・グロス=1 を前提）。
+        realized : その建玉が当日引けまでに実現したリターン {ticker: 始値→終値リターン}
+        cfg      : 戦略設定（取引コスト等）
+        signal_strength : 予測シグナルのノルム（ログ用）
+        factor_scores   : 因子スコア（ログ用）
         """
-        # 簡略版: signal が渡されたら、それを正規化してウェイトに
-        if signal is not None:
-            weights_dict = {tk: float(signal[i]) if i < len(signal) else 0.0
-                           for i, tk in enumerate(jp_returns.keys())}
-        else:
-            weights_dict = {tk: 0.0 for tk in jp_returns.keys()}
+        weights_dict = {tk: float(w) for tk, w in weights.items()}
 
-        # ドルニュートラル化
-        w_mean = np.mean(list(weights_dict.values()))
-        for tk in weights_dict:
-            weights_dict[tk] -= w_mean
-
-        # ターンオーバー計算
+        # ターンオーバー（前日ウェイトとの差の絶対値和）
         prev_w = self.state.last_weights
         turnover = sum(abs(weights_dict.get(tk, 0.0) - prev_w.get(tk, 0.0))
                        for tk in set(weights_dict) | set(prev_w))
 
-        # ポートフォリオリターン
-        port_ret = sum(weights_dict.get(tk, 0.0) * jp_returns.get(tk, 0.0)
-                       for tk in jp_returns)
+        # ポートフォリオ実現リターン（グロス）
+        port_ret = sum(weights_dict.get(tk, 0.0) * realized.get(tk, 0.0)
+                       for tk in weights_dict)
         cost = turnover * cfg.cost_bps / 1e4
         net_ret = port_ret - cost
 
@@ -252,21 +232,19 @@ class DailyForwardSimulator:
         self.state.current_equity = new_equity
         self.state.last_weights = dict(weights_dict)
 
-        # ログ記録
+        nonzero = {tk: w for tk, w in weights_dict.items() if abs(w) > 1e-12}
         log = DailyForwardLog(
             date=str(pd.Timestamp(date).date()),
-            signal_strength=float(np.linalg.norm(signal)) if signal is not None else 0.0,
+            signal_strength=float(signal_strength),
             factor_scores=factor_scores or [],
-            weights=dict(weights_dict),
+            weights=nonzero,
             realized_return=float(port_ret),
             turnover=float(turnover),
             transaction_cost=float(cost),
             net_return=float(net_ret),
             equity=float(new_equity),
-            max_pos=max(weights_dict, key=lambda tk: abs(weights_dict[tk]))
-                    if weights_dict else "N/A",
-            max_pos_weight=float(max(abs(w) for w in weights_dict.values()))
-                          if weights_dict else 0.0,
+            max_pos=max(nonzero, key=lambda tk: abs(nonzero[tk])) if nonzero else "N/A",
+            max_pos_weight=float(max(abs(w) for w in nonzero.values())) if nonzero else 0.0,
         )
         self.state.logs.append(log)
         return log

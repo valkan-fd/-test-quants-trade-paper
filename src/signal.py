@@ -39,37 +39,50 @@ class StandardScaler:
         return z * self.std_
 
 
-def predict_next_day_jp(
+def predict_next_day_jp_detailed(
     us_window: np.ndarray,    # (T, n_us)  窓内の米国当日リターン (i = t-T..t-1)
     jp_window_next: np.ndarray,  # (T, n_jp) 対応する翌日の日本リターン (i+1)
     us_today: np.ndarray,     # (n_us,)    予測日 t の米国当日リターン
     lam: float,
     k: int,
     variant: str = "shrink",
-) -> np.ndarray:
-    """予測日 t の日本セクター翌日リターン r̂_jp(t+1) を返す (元スケール, デマーン前)。"""
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """予測の詳細版。(r̂_jp(t+1), 因子スコア f̂, 固有値) を返す。
+
+    r̂_jp は元スケール・デマーン前。診断ログ用に因子スコア・固有値も返す。
+    """
     n_us = us_window.shape[1]
     n_jp = jp_window_next.shape[1]
 
-    # 米国と日本それぞれを窓統計で標準化
     sc_us = StandardScaler().fit(us_window)
     sc_jp = StandardScaler().fit(jp_window_next)
     z_us = sc_us.transform(us_window)
     z_jp = sc_jp.transform(jp_window_next)
 
-    # 結合サンプル -> 部分空間正則化PCA
     joint = np.hstack([z_us, z_jp])               # (T, n_us+n_jp)
     prior = build_prior_subspace(n_us, n_jp)
-    W, _ = subspace_regularized_pca(joint, prior, lam=lam, k=k, variant=variant)
+    W, eigvals = subspace_regularized_pca(joint, prior, lam=lam, k=k, variant=variant)
 
     W_us = W[:n_us, :]    # (n_us, k)
     W_jp = W[n_us:, :]    # (n_jp, k)
 
-    # 予測日の米国リターンを標準化し、因子スコアを最小二乗で復元
     z_us_today = sc_us.transform(us_today.reshape(1, -1)).ravel()
     f_hat, *_ = np.linalg.lstsq(W_us, z_us_today, rcond=None)   # (k,)
 
-    # 日本側を再構成 -> 元スケールへ
     z_jp_pred = W_jp @ f_hat                       # (n_jp,) 標準化空間
     r_jp_pred = sc_jp.inverse_std(z_jp_pred)       # 元スケール
-    return r_jp_pred
+    return r_jp_pred, f_hat, eigvals
+
+
+def predict_next_day_jp(
+    us_window: np.ndarray,
+    jp_window_next: np.ndarray,
+    us_today: np.ndarray,
+    lam: float,
+    k: int,
+    variant: str = "shrink",
+) -> np.ndarray:
+    """予測日 t の日本セクター翌日リターン r̂_jp(t+1) を返す (元スケール, デマーン前)。"""
+    pred, _, _ = predict_next_day_jp_detailed(
+        us_window, jp_window_next, us_today, lam=lam, k=k, variant=variant)
+    return pred
